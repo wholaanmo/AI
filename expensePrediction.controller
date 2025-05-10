@@ -1,5 +1,6 @@
 const expenseService = require('../expenses/expenses.service');
 
+
 module.exports = {
     predictCategory: async (req, res) => {
       try {
@@ -31,13 +32,13 @@ module.exports = {
   
     learnFromCorrection: async (req, res) => {
       try {
-        console.log('Request body:', req.body);
-        console.log('User ID:', req.user.userId);
+        console.log('Incoming learning data:', req.body);
 
         const { item_name, expense_type, item_price, personal_budget_id } = req.body;
         const userId = req.user.userId;
 
         if (!item_name || !expense_type) {
+          console.error('Missing required fields:', { item_name, expense_type });
             return res.status(400).json({ 
               success: 0,
               message: 'Both item_name and expense_type are required' 
@@ -46,12 +47,13 @@ module.exports = {
           
 
           const validTypes = ['Food', 'Bill', 'Transportation', 'Entertainment', 'Healthcare', 'Shopping', 'Other'];
-    if (!validTypes.includes(expense_type)) {
-      return res.status(400).json({
-        success: 0,
-        message: 'Invalid expense type'
-      });
-    }
+          if (!validTypes.includes(expense_type)) {
+            console.error('Invalid expense type:', expense_type);
+            return res.status(400).json({
+              success: 0,
+              message: `Invalid expense type. Must be one of: ${validTypes.join(', ')}`
+            });
+          }
         
     await expenseService.learnFromCorrection(
       item_name,
