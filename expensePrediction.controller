@@ -32,49 +32,55 @@ module.exports = {
   
     learnFromCorrection: async (req, res) => {
       try {
-        console.log('Incoming learning data:', req.body);
-
+        console.log('Full incoming request:', {
+          body: req.body,
+          headers: req.headers,
+          user: req.user
+        });
+    
         const { item_name, expense_type, item_price, personal_budget_id } = req.body;
-        const userId = req.user.userId;
-
+        const userId = req.user?.userId || null; // Make userId optional for learning
+    
         if (!item_name || !expense_type) {
           console.error('Missing required fields:', { item_name, expense_type });
-            return res.status(400).json({ 
-              success: 0,
-              message: 'Both item_name and expense_type are required' 
-            });
-          }
-          
-
-          const validTypes = ['Food', 'Bill', 'Transportation', 'Entertainment', 'Healthcare', 'Shopping', 'Other'];
-          if (!validTypes.includes(expense_type)) {
-            console.error('Invalid expense type:', expense_type);
-            return res.status(400).json({
-              success: 0,
-              message: `Invalid expense type. Must be one of: ${validTypes.join(', ')}`
-            });
-          }
+          return res.status(400).json({ 
+            success: 0,
+            message: 'Both item_name and expense_type are required' 
+          });
+        }
         
-    await expenseService.learnFromCorrection(
-      item_name,
-      expense_type,
-      userId,
-      item_price,
-      personal_budget_id
-    );
-    
-    console.log('Learning data saved successfully')
-        res.json({ 
+        const result = await expenseService.learnFromCorrection(
+          item_name,
+          expense_type,
+          userId,
+          item_price,
+          personal_budget_id
+        );
+        
+        return res.json({ 
           success: 1,
-          message: 'Learned from correction' 
+          message: 'Learned from correction',
+          data: result 
         });
         
       } catch (error) {
-        console.error('Learning error:', error);
-        res.status(500).json({ 
+        console.error('Full learning error:', {
+          message: error.message,
+          stack: error.stack,
+          response: error.response?.data,
+          request: {
+            body: req.body,
+            headers: req.headers
+          }
+        });
+        
+        return res.status(500).json({ 
           success: 0,
           message: 'Failed to learn from correction',
-          error: process.env.NODE_ENV === 'development' ? error.message : undefined
+          error: process.env.NODE_ENV === 'development' ? {
+            message: error.message,
+            stack: error.stack
+          } : undefined
         });
       }
     }
