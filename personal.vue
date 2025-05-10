@@ -388,7 +388,7 @@ currentBudget() {
     this.isLoading = true;
     const savedDismissedAlerts = localStorage.getItem('dismissedAlerts');
     if (savedDismissedAlerts) {
-      this.dismissedAlerts = JSON.parse(savedDismissedAlerts);
+      this.dismissedAlerts = savedDismissedAlerts ? JSON.parse(savedDismissedAlerts) : {};
     }
     
     const now = new Date();
@@ -443,11 +443,13 @@ currentBudget() {
   
   currentMonthYear: {
     immediate: true,
-    handler() {
-      this.checkBudgetStatus();
+    handler(newVal, oldVal) {
+      if (newVal !== oldVal) {
+        this.checkBudgetStatus(true);
+      }
     }
   }
-},
+  },
 
    methods: {
      ...mapActions([
@@ -488,15 +490,18 @@ currentBudget() {
 
   async changeMonth(date) {
     const newMonthYear = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    this.currentMonthYear = newMonthYear;
+  this.currentMonthYear = newMonthYear;
 
-    
-    await Promise.all([
-      this.$store.dispatch('fetchAddExpenses'),
-      this.loadBudgetForMonth(newMonthYear)
-    ]);
-    this.checkBudgetStatus();
-  },
+  await Promise.all([
+    this.$store.dispatch('fetchAddExpenses'),
+    this.loadBudgetForMonth(newMonthYear)
+  ]);
+  
+  this.checkBudgetStatus(true);
+
+  this.dismissedAlerts[newMonthYear] = false;
+  localStorage.setItem('dismissedAlerts', JSON.stringify(this.dismissedAlerts));
+},
 
     checkMonthChange() {
     const lastAccessedMonth = localStorage.getItem('lastAccessedMonth');
