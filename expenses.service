@@ -21,17 +21,34 @@ module.exports = {
         itemPrice, 
         personalBudgetId 
       });
-      
-      await pool.execute(
+
+      if (!itemName || !expenseType || !userId) {
+        throw new Error('Missing required fields (itemName, expenseType, userId)');
+      }
+
+      const truncatedItemName = itemName.substring(0, 100);
+      const numericPrice = itemPrice ? Number(itemPrice) : null;
+
+      const [result] = await pool.execute(
         `INSERT INTO expense_learning_data 
-         (userId, personal_budget_id, expense_type, item_name, item_price, expense_date)
-         VALUES (?, ?, ?, ?, ?, NOW())`,
-        [userId, personalBudgetId, expenseType, itemName.substring(0, 100), itemPrice]
+         (userId, personal_budget_id, expense_type, item_name, item_price)
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          userId, 
+          personalBudgetId || null, // Handle null explicitly
+          expenseType,
+          itemName.substring(0, 100), 
+          itemPrice ? Number(itemPrice) : null
+        ]
       );
       
-      await ExpenseClassifier.learn(itemName, expenseType);
+      await ExpenseClassifier.learn(truncatedItemName, expenseType);
       
-      return true;
+      console.log('Successfully saved learning data with ID:', result.insertId);
+      return {
+        success: true,
+        insertedId: result.insertId
+      };
     } catch (error) {
       console.error('Error learning from correction:', error);
       throw error;
