@@ -532,38 +532,41 @@ currentBudget() {
       }, 500); // Debounce to avoid too many requests
     },
     
-  async handleLearningData() {
-  try {
-
-    const effectiveExpenseType = this.expenseType === 'Other' 
+    async handleLearningData(expenseData) { 
+    try {
+      const effectiveExpenseType = expenseData.expense_type === 'Other' 
       ? this.customExpenseType 
-      : this.expenseType;
+      : expenseData.expense_type;
 
-      if (!this.itemName?.trim() || !effectiveExpenseType) {
-      console.log('Skipping learning - missing:', {
-        itemName: this.itemName,
-        expenseType: effectiveExpenseType
-      });
+      if (!expenseData.item_name?.trim() || !effectiveExpenseType) {
+      console.log('Skipping learning - missing required fields');
       return;
     }
 
-    if (!this.editId) {
-      const currentBudget = this.currentMonthBudget;
+    const payload = {
+      item_name: expenseData.item_name.trim(),
+      expense_type: expenseData.expense_type === 'Other' ? this.customExpenseType : expenseData.expense_type,
+      item_price: expenseData.item_price ? Number(expenseData.item_price) : null,
+      personal_budget_id: expenseData.personal_budget_id || null,
+      userId: this.$store.state.user?.id || null
+    };
+
+    console.log('Sending learning data:', payload);
+
+   // const currentBudget = this.currentMonthBudget;
       
-      await this.$axios.post('/api/predictions/learn', {
-        item_name: this.itemName.trim(),
-        expense_type: effectiveExpenseType,
-        item_price: this.itemPrice ? Number(this.itemPrice) : null,
-        personal_budget_id: currentBudget?.id || null
-      }, {
-        headers: { 
-          Authorization: `Bearer ${localStorage.getItem('jsontoken')}`,
-          'Content-Type': 'application/json'
-        }
-      });
-    }
+   await this.$axios.post('/api/predictions/learn', payload, {
+      headers: { 
+        Authorization: `Bearer ${localStorage.getItem('jsontoken')}`,
+        'Content-Type': 'application/json'
+      }
+    });
   } catch (error) {
-    console.warn('Non-critical learning error:', error);
+    console.error('Learning error details:', {
+      error: error.response?.data || error.message,
+      config: error.config
+    });
+    throw error;
   }
 },
 
@@ -924,15 +927,19 @@ shouldSuggestAlternative(itemName) {
       });
     } else {
       result = await this.addExpense(expenseData);
+      
+      if (result.success) {
+        await this.handleLearningData({
+          item_name: expenseData.item_name,
+          expense_type: expenseData.expense_type,
+          item_price: expenseData.item_price,
+          personal_budget_id: expenseData.personal_budget_id
+        });
+      }
     }
 
     if (result.success) {
       console.log('Expense added successfully:', result.data);
-      
-      // Only call learning for new expenses (not edits)
-      if (!this.editId) {
-        await this.handleLearningData();
-      }
       
       // Refresh data
       await Promise.all([
