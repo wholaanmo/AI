@@ -110,18 +110,56 @@ module.exports = {
 
   // Edit Expense
   editExpense: async (data) => {
+    const connection = await pool.getConnection();
     try {
-      const [results] = await pool.execute(
+      await connection.beginTransaction();
+  
+      // 1. First get the existing expense to access personal_budget_id
+      const [existingExpense] = await connection.execute(
+        "SELECT personal_budget_id FROM expenses WHERE id = ? AND userId = ?",
+        [data.id, data.userId]
+      );
+  
+      if (existingExpense.length === 0) {
+        throw new Error("Expense not found or unauthorized");
+      }
+  
+      const personal_budget_id = existingExpense[0].personal_budget_id;
+  
+      // 2. Update the expenses table
+      const [expenseResults] = await connection.execute(
         "UPDATE expenses SET item_price = ?, expense_type = ?, item_name = ? WHERE id = ? AND userId = ?",
         [data.item_price, data.expense_type, data.item_name, data.id, data.userId]
       );
       
-      if (results.affectedRows === 0) {
+      if (expenseResults.affectedRows === 0) {
         throw new Error("Expense not found or unauthorized");
       }
-      return results;
+  
+      // 3. Update or insert into expense_learning_data table
+      await connection.execute(
+        `INSERT INTO expense_learning_data 
+         (userId, item_name, expense_type, item_price, personal_budget_id) 
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+         expense_type = VALUES(expense_type),
+         item_price = VALUES(item_price),
+         personal_budget_id = VALUES(personal_budget_id)`,
+        [data.userId, data.item_name, data.expense_type, data.item_price, personal_budget_id]
+      );
+  
+      await connection.commit();
+      return expenseResults;
     } catch (err) {
-      throw err;
+      await connection.rollback();
+      console.error('Error in editExpense:', {
+        message: err.message,
+        stack: err.stack,
+        inputData: data
+      });
+      throw new Error(err.message || 'Database error');
+    } finally {
+      connection.release();
     }
   },
 
