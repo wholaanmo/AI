@@ -55,6 +55,7 @@
     <strong class="amount-value">{{ formatPHP(currentMonthBudget.budget_amount) }}</strong>
   </div>
 
+  <div class="expenses-summary1">
           <div class="expenses-amount">
           <span>TOTAL EXPENSES:</span>
           <strong>{{ formatPHP(totalExpensesForMonth) }}</strong>
@@ -66,7 +67,8 @@
             {{ formatPHP(remainingBudget) }}
           </strong>
         </div>
-          
+        </div>  
+
           <div class="budget-progress">
             <div class="progress-bar">
               <div 
@@ -1127,7 +1129,7 @@ async deleteExpenseHandler(id) {
   font-size: 0.9em;
 }
 .text-danger {
-  color: #dc3545; 
+  color: #c62828;
 }
 .budget-form input[type="month"] {
   width: 100%;
@@ -1137,23 +1139,6 @@ async deleteExpenseHandler(id) {
   background: white;
   color: #333;
 }
-.month-selector {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 20px 0;
-  font-size: 1.2rem;
-}
-
-.month-selector button {
-  background: #f0f0f0;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  padding: 5px 15px;
-  margin: 0 10px;
-  cursor: pointer;
-  transition: all 0.3s;
-}
 
 .month-selector button:hover {
   background: #e0e0e0;
@@ -1161,9 +1146,11 @@ async deleteExpenseHandler(id) {
 
 .month-selector span {
   min-width: 150px;
+  padding: 0 12px;
   text-align: center;
   font-weight: bold;
 }
+
 .predicting-text {
   color: #555;
   font-style: italic;
@@ -1224,7 +1211,7 @@ async deleteExpenseHandler(id) {
   border: 1px solid #ef9a9a;
   border-radius: 6px;
   padding: 20px 30px; /* Increased padding */
-  min-width: 350px;    /* Optional: ensures a wider box */
+  min-width: 320px;    /* Optional: ensures a wider box */
   color: #c62828;
   font-weight: bold;
   font-size: 1.2em;    /* Increased font size */
@@ -1297,6 +1284,7 @@ async deleteExpenseHandler(id) {
     transform: translate(-50%, 0);
   }
 } /*NEWWWWWWWWWWWW */
+
 .main-layout {
   display: flex;
   flex-direction: column;
@@ -1309,14 +1297,17 @@ async deleteExpenseHandler(id) {
 .top-row {
   margin-top: 100px;
   display: flex;
+  flex-wrap: nowrap; /* prevent wrapping by default */
   gap: 20px;
   width: 100%;
+  flex-direction: row;
 } 
 
 /* Budget Container Styles */
 .budget-container {
-  width: 30%;
-  background-color: rgb(216, 248, 216);; 
+  flex: 1 1 30%;
+  min-width: 150px;
+  background-color: #daf9da; 
   padding: 20px;
   border-radius: 15px;
   border: 2px solid #2e4e38;
@@ -1337,6 +1328,7 @@ async deleteExpenseHandler(id) {
   color: #183d2a;
   font-size: 1.8rem;
   margin-right: 25px;
+  margin-bottom: 20px;
   font-weight: bold;
 }
 
@@ -1397,7 +1389,20 @@ async deleteExpenseHandler(id) {
 }
 
 .budget-amount {
-  color: #ffea00; 
+  background-color: #ffffff;           /* clean white for contrast */
+  border: 2px solid #6A9C89;           /* soft green border */
+  padding: 12px 16px;
+  border-radius: 10px;
+  color: #388e3c;                      /* dark green for label */
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  font-weight: 650;
+  font-size: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
 }
 
 .budget-form {
@@ -1415,37 +1420,10 @@ async deleteExpenseHandler(id) {
   align-items: center;
 }
 
+
 .amount-value {
-  margin-left: 6px;
-}
-
-@media (max-width: 768px) {
-  .top-row {
-    flex-wrap: wrap;
-    gap: 8px; /* reduced from 16px */
-    padding: 10px 0; /* reduce vertical padding */
-    margin-bottom: 10px;
-  }
-  .budget-container {
-    width: 100%;
-    font-size: 1rem;
-  }
-
-  .budget-header h3 {
-    font-size: 1.4rem;
-  }
-
-  .btn-add, .btn-edit {
-    font-size: 14px;
-  }
-
-  .month-selector {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px; /* smaller spacing between the buttons and text */
-  font-size: 1rem;
-  }
+  color: #2e7d32;                      /* slightly darker green */
+  font-size: 18px;
 }
 
 .budget-form label {
@@ -1517,34 +1495,50 @@ async deleteExpenseHandler(id) {
 
 .month-selector {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  margin-top: 20px;
   margin-bottom: 12px;
-  font-size: 1.5rem;
+  font-size: 1.2rem;
   color: #1b3d2f;
 }
 
 .month-selector button {
+  border: 1px solid #ddd;
+  cursor: pointer;
+  transition: all 0.3s;
   background: #2a4935;
   color: white;
-  border: none;
-  padding: 5px 10px;
+  padding: 6px 12px;
   border-radius: 5px;
-  cursor: pointer;
+  font-size: 1rem;
 }
 
-.budget-amount {
-  display: flex;
-  justify-content: space-between;
-  font-size: 1.3rem;
-  color: #264d3b;
-  margin-top: 20px;
-}
 
-.expenses-amount {
+
+.expenses-summary1 {
+  background-color: #f5f5f5; ;            
+  border: 2px solid #697565;
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  width: 92%;
   margin-top: 10px;
 }
+
+.expenses-amount,
+.remaining-budget {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 550;
+  margin-bottom: 8px;
+  color: #444;
+}
+
+
 .budget-progress {
   margin-top: 2px;
 }
@@ -1668,9 +1662,12 @@ async deleteExpenseHandler(id) {
 }
  
  .content-wrapper {
+  display: flex;
+  flex-wrap: wrap;
   align-content: center;
-  width: 70%;
-  background-color: #C6EBC5;
+  flex: 1 1 65%;
+  min-width: 280px;
+  background-color: #c5f8cc;
   border: 2px solid #365c42;
   padding: 20px;
   border-radius: 15px;
@@ -1706,18 +1703,23 @@ async deleteExpenseHandler(id) {
  
 
 .expenses-section {
-  margin-top: 10px; 
+  margin-top: 10px;   
 }
 
 .expenses-section h3 {
+  text-align: center;
+  align-content: center;
   margin-top: 10px;
-  margin-bottom: 25px; 
   color: #2e2e2e;
   font-size: 1.5rem; 
   padding-bottom: 10px;
   border-bottom: 2px solid #e1e1e1; 
   font-weight: 600;
 } 
+
+h3{
+  margin-bottom: 0;
+}
 
 .expenses-table {
   overflow-x: auto;
@@ -1728,7 +1730,7 @@ table {
   width: 100%;
   border-collapse: separate; 
   border-spacing: 0 10px; 
-  margin-bottom: 30px; 
+  margin-bottom: 20px; 
 }  
 
 th, td {
@@ -1740,11 +1742,11 @@ th, td {
 } 
 
 th {
-  background-color: #ecfdf5;
+  background-color: #2a4935;
   font-weight: 700;
   font-size: 1rem; 
   padding: 12px 20px; 
-  color: rgb(46, 41, 41);
+  color: white;
 } 
 
 tr {
@@ -1832,7 +1834,6 @@ td, th {
      box-sizing: border-box;
      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
      text-align: center;
-     max-width: 1300px;
      width: 100%;
      position: relative; 
      bottom: 0;   
@@ -1842,6 +1843,9 @@ td, th {
 
 .form-title {
   color: #2a4935;
+  background-color: #d8fcdd;
+  height: 50px;
+  align-content: center;
   text-align: center;
   margin-bottom: 20px;
   font-size: 1.4rem;
@@ -1948,47 +1952,21 @@ td, th {
     color: white; /* Text color on hover */
 }
 
-/* RESPONSIVE DESIGN */
 
-@media screen and (max-width: 1000px) {
-  .content-wrapper{
-    width: 440px;
-    margin-top: 30px;
+@media (max-width: 1200px) {
+  .month-selector span{
+    min-width: 50px;
+    padding: 10px;
+    text-align: center;
+    font-weight: bold;
   }
+}
 
-    .expense-form{
-      margin-top: 10px;
-      margin-bottom: 10px;
-      width: 440px;
-    }
-
-    .btn-add, .btn-edit {
-      margin-bottom: 10px;
-    }
-
-    .content-wrapper {
-        padding: 0px;
-    }
-
-    input[type="text"],
-    input[type="number"],
-    select {
-        width: 90%;
-        max-width: 600px;
-        font-size: 15px;
-    }
-
-    .h3{
-      font-size: 20px;
-      font-weight: bold;
-      margin-top: 30px;
-      color: white;
-    }
-
-    .expenses-container{
-        width: 100%;
-        max-width: 1000px;
-    }
+@media (max-width: 760px) {
+  .top-row {
+    flex-wrap: wrap;
+    flex-direction: column;
+  }
 }
 
 </style>
