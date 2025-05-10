@@ -1,0 +1,134 @@
+const pool = require('../../config/database');
+const ExpenseClassifier = require('./expenseClassifier.service');
+
+module.exports = {
+  predictExpenseCategory: async (item_name) => {
+    try {
+      return await ExpenseClassifier.predict(item_name);
+    } catch (err) {
+      console.error('Prediction failed:', err);
+      return 'Other'; // Default category
+    }
+  },
+  
+  // Add learning from user corrections
+  learnFromCorrection: async (itemName, expenseType, userId, itemPrice = null, personalBudgetId = null) => {
+    try {
+      console.log('Received learning data:', { 
+        itemName, 
+        expenseType, 
+        userId, 
+        itemPrice, 
+        personalBudgetId 
+      });
+      
+      await pool.execute(
+        `INSERT INTO expense_learning_data 
+         (userId, personal_budget_id, expense_type, item_name, item_price, expense_date)
+         VALUES (?, ?, ?, ?, ?, NOW())`,
+        [userId, personalBudgetId, expenseType, itemName.substring(0, 100), itemPrice]
+      );
+      
+      await ExpenseClassifier.learn(itemName, expenseType);
+      
+      return true;
+    } catch (error) {
+      console.error('Error learning from correction:', error);
+      throw error;
+    }
+  },
+
+  getPersonalizedPrediction: async (item_name, userId) => {
+    // Implement logic to check user's previous categorizations
+    // This could query your database for user-specific patterns
+  },
+  
+  storeCorrection: async (item_name, expense_type, userId) => {
+    // Store the correction in your database
+  },
+
+  // Add Expense
+  addExpense: async (data) => {
+    try {
+      const [results] = await pool.execute(
+        "INSERT INTO expenses (userId, item_price, expense_type, item_name, personal_budget_id) VALUES (?, ?, ?, ?, ?)",
+        [data.userId, data.item_price, data.expense_type, data.item_name, data.personal_budget_id]
+      );
+      
+      return results;
+    } catch (err) {
+      if (err.errno === 1452) { // Foreign key constraint
+        throw new Error("The specified personal budget does not exist");
+      }
+      throw err;
+    }
+  },
+
+  // Edit Expense
+  editExpense: async (data) => {
+    try {
+      const [results] = await pool.execute(
+        "UPDATE expenses SET item_price = ?, expense_type = ?, item_name = ? WHERE id = ? AND userId = ?",
+        [data.item_price, data.expense_type, data.item_name, data.id, data.userId]
+      );
+      
+      if (results.affectedRows === 0) {
+        throw new Error("Expense not found or unauthorized");
+      }
+      return results;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  // Delete Expense
+  deleteExpense: async (id, userId) => {
+    try {
+      const [results] = await pool.execute(
+        "DELETE FROM expenses WHERE id = ? AND userId = ?",
+        [id, userId]
+      );
+      
+      if (results.affectedRows === 0) {
+        throw new Error("Expense not found or unauthorized");
+      }
+      return results;
+    } catch (err) {
+      throw err;
+    }
+  },
+  
+  getExpensesByUser: async (userId) => {
+    try {
+      const [results] = await pool.execute(
+        "SELECT id, item_price, expense_type, item_name, expense_date FROM expenses WHERE userId = ?",
+        [userId]
+      );
+      return results;
+    } catch (err) {
+      throw err;
+    }
+  },
+  
+  getExpensesByUserAndMonth: async (userId, monthYear) => {
+    try {
+      // Parse the monthYear (format: "YYYY-MM")
+      const [year, month] = monthYear.split('-').map(Number);
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 1); // First day of next month
+      
+      const [results] = await pool.execute(
+        `SELECT id, item_price, expense_type, item_name, expense_date 
+         FROM expenses 
+         WHERE userId = ? 
+         AND expense_date >= ? 
+         AND expense_date < ?`,
+        [userId, startDate, endDate]
+      );
+      
+      return results;
+    } catch (err) {
+      throw err;
+    }
+  }
+};
