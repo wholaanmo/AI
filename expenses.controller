@@ -31,6 +31,11 @@ module.exports = {
         [userId, personal_budget_id, expense_type, item_name, item_price]
       );
 
+      const [newExpense] = await pool.query(
+        'SELECT * FROM expenses WHERE id = ?',
+        [result.insertId]
+      );
+      
       return res.status(200).json({
         success: 1,
         message: "Expense added successfully",
