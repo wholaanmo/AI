@@ -22,35 +22,62 @@ module.exports = {
         personalBudgetId 
       });
 
-      if (!itemName || !expenseType || !userId) {
-        throw new Error('Missing required fields (itemName, expenseType, userId)');
+      if (!itemName || typeof itemName !== 'string') {
+        throw new Error('Invalid itemName');
       }
-
+      if (!expenseType || typeof expenseType !== 'string') {
+        throw new Error('Invalid expenseType');
+      }
+  
       const truncatedItemName = itemName.substring(0, 100);
       const numericPrice = itemPrice ? Number(itemPrice) : null;
-
-      const [result] = await pool.execute(
+  
+      const [dbResult] = await pool.execute(
         `INSERT INTO expense_learning_data 
-         (userId, personal_budget_id, expense_type, item_name, item_price)
-         VALUES (?, ?, ?, ?, ?)`,
+         (userId, personal_budget_id, expense_type, item_name, item_price, expense_date)
+         VALUES (?, ?, ?, ?, ?, NOW())`,
         [
           userId, 
-          personalBudgetId || null, // Handle null explicitly
+          personalBudgetId || null, 
           expenseType,
-          itemName.substring(0, 100), 
-          itemPrice ? Number(itemPrice) : null
+          truncatedItemName, 
+          numericPrice
         ]
       );
       
-      await ExpenseClassifier.learn(truncatedItemName, expenseType);
-      
-      console.log('Successfully saved learning data with ID:', result.insertId);
+      console.log('Database insert successful:', dbResult);
+
+      // Train classifier - wrap in try-catch as this might be failing
+      let classifierResult;
+      try {
+        classifierResult = await ExpenseClassifier.learn(truncatedItemName, expenseType);
+        console.log('Classifier training successful:', classifierResult);
+      } catch (classifierError) {
+        console.error('Classifier training failed (non-critical):', {
+          error: classifierError.message,
+          stack: classifierError.stack
+        });
+        // Continue despite classifier error
+      }
+  
       return {
         success: true,
-        insertedId: result.insertId
+        insertedId: dbResult.insertId,
+        classifierSuccess: !!classifierResult
       };
+      
     } catch (error) {
-      console.error('Error learning from correction:', error);
+      console.error('Full service error:', {
+        message: error.message,
+        stack: error.stack,
+        inputData: {
+          itemName,
+          expenseType,
+          userId,
+          itemPrice,
+          personalBudgetId
+        }
+      });
       throw error;
     }
   },
