@@ -1,0 +1,10 @@
+const express = require('express');
+const router = express.Router();
+const expensePredictionController = require('./expensePrediction.controller');
+const { checkToken } = require('../../auth/token_validation');
+
+// Prediction endpoints
+router.post('/predict', checkToken, expensePredictionController.predictCategory);
+router.post('/learn', checkToken, expensePredictionController.learnFromCorrection);
+
+module.exports = router;
