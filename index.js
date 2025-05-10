@@ -128,7 +128,6 @@ export default createStore({
     },
     ADD_EXPENSE(state, expense) {
       try {
-        // Validate the expense object exists
         if (!expense) {
           console.warn('Attempted to add undefined expense');
           return;
@@ -154,8 +153,6 @@ export default createStore({
           personal_budget_id: expense.personal_budget_id || null
         };
     
-        // Add to both state arrays
-        state.expenses.push(validatedExpense);
         state.addExpenses.push(validatedExpense);
     
         console.log('Expense successfully added to store:', validatedExpense);
