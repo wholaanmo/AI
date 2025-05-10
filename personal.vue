@@ -533,40 +533,48 @@ currentBudget() {
     },
     
     async handleLearningData(expenseData) { 
-    try {
-      const effectiveExpenseType = expenseData.expense_type === 'Other' 
-      ? this.customExpenseType 
-      : expenseData.expense_type;
-
-      if (!expenseData.item_name?.trim() || !effectiveExpenseType) {
+  try {
+    // Skip if missing required fields
+    if (!expenseData.item_name?.trim() || !expenseData.expense_type) {
       console.log('Skipping learning - missing required fields');
-      return;
+      return { success: false, reason: 'Missing required fields' };
     }
 
     const payload = {
       item_name: expenseData.item_name.trim(),
-      expense_type: expenseData.expense_type === 'Other' ? this.customExpenseType : expenseData.expense_type,
+      expense_type: expenseData.expense_type,
       item_price: expenseData.item_price ? Number(expenseData.item_price) : null,
       personal_budget_id: expenseData.personal_budget_id || null,
       userId: this.$store.state.user?.id || null
     };
 
-    console.log('Sending learning data:', payload);
-
-   // const currentBudget = this.currentMonthBudget;
+    console.log('Attempting to send learning data:', payload);
       
-   await this.$axios.post('/api/predictions/learn', payload, {
+    const response = await this.$axios.post('/api/predictions/learn', payload, {
       headers: { 
         Authorization: `Bearer ${localStorage.getItem('jsontoken')}`,
         'Content-Type': 'application/json'
       }
     });
+
+    console.log('Learning response:', response.data);
+    return { success: true, data: response.data };
+
   } catch (error) {
-    console.error('Learning error details:', {
-      error: error.response?.data || error.message,
+    const errorDetails = {
+      message: error.message,
+      response: error.response?.data,
       config: error.config
-    });
-    throw error;
+    };
+    
+    console.error('Learning failed (non-critical):', errorDetails);
+    
+    // Return error details but don't throw - learning failure shouldn't block UI
+    return { 
+      success: false, 
+      error: errorDetails,
+      isCritical: false 
+    };
   }
 },
 
@@ -911,11 +919,11 @@ shouldSuggestAlternative(itemName) {
     }
 
     const expenseData = {
-      item_price: Number(this.itemPrice), 
-      expense_type: this.expenseType === 'Other' ? this.customExpenseType : this.expenseType,
-      item_name: this.itemName,
-      personal_budget_id: budget.id 
-    };
+  item_price: Number(this.itemPrice),
+  expense_type: this.expenseType === 'Other' ? this.customExpenseType : this.expenseType,
+  item_name: this.itemName,
+  personal_budget_id: budget.id,
+};
 
     console.log('Submitting expense:', expenseData);
     
@@ -933,7 +941,8 @@ shouldSuggestAlternative(itemName) {
           item_name: expenseData.item_name,
           expense_type: expenseData.expense_type,
           item_price: expenseData.item_price,
-          personal_budget_id: expenseData.personal_budget_id
+          personal_budget_id: expenseData.personal_budget_id,
+         // custom_type: expenseData.custom_type
         });
       }
     }
