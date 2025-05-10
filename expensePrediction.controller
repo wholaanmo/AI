@@ -83,5 +83,50 @@ module.exports = {
           } : undefined
         });
       }
+    },
+    editExpense: async (req, res) => {
+      try {
+        const { item_price, expense_type, item_name, personal_budget_id } = req.body;
+        const userId = req.user.userId;
+        const id = req.params.id;
+    
+        if (!item_price || !expense_type || !item_name) {
+          return res.status(400).json({
+            success: 0,
+            message: "Missing required fields"
+          });
+        }
+    
+        await expenseService.editExpense({
+          id, 
+          userId, 
+          item_price, 
+          expense_type, 
+          item_name,
+          personal_budget_id
+        });
+    
+        return res.json({
+          success: 1,
+          message: "Expense updated successfully"
+        });
+      } catch (err) {
+        let message = "Database error";
+        if (err.message === "Expense not found or unauthorized") {
+          message = err.message;
+        }
+        console.error("Edit expense error:", {
+          error: err,
+          request: {
+            params: req.params,
+            body: req.body,
+            user: req.user
+          }
+        });
+        return res.status(500).json({
+          success: 0,
+          message: message
+        });
+      }
     }
   };
