@@ -1,0 +1,275 @@
+const natural = require('natural');
+const brain = require('brain.js');
+const nlp = require('compromise');
+const expenseService = require('../expenses/expenses.service');
+const pool = require('../../config/database');
+
+class ExpenseClassifier {
+  constructor() {
+    this.initializeClassifiers();
+    this.trainingData = [];
+  }
+
+  async initialize() {
+    await this.loadTrainingData();
+  }
+
+  initializeClassifiers() {
+    this.keywordClassifier = new natural.BayesClassifier();
+    this.neuralClassifier = new brain.recurrent.LSTM();
+    this.trainingData = [];
+  }
+
+  async loadTrainingData() {
+    try {
+      const [expenses] = await pool.execute(
+        "SELECT LOWER(item_name) as item_name, expense_type FROM expenses"
+      );
+      
+      const categoryCounts = {};
+      expenses.forEach(expense => {
+        this.addTrainingExample(expense.item_name, expense.expense_type);
+        categoryCounts[expense.expense_type] = (categoryCounts[expense.expense_type] || 0) + 1;
+      });
+
+      const categoryExamples = {
+        Food: [
+          "burger", "burgei", "burgir", "hamburger", "jollibee", 
+          "pizza", "piza", "pasta", "sandwich", "fries", "milktea",
+          "rice", "noodles", "chicken", "mcdo", "kfc"
+        ],
+        Bill: [
+          "electric bill", "water bill", "internet bill", "phone bill",
+          "cable bill", "utility bill", "rent", "mortgage", "electricity",
+          "water payment", "internet payment"
+        ],
+        Transportation: [
+          "gasoline", "gas", "petrol", "diesel", "jeepney fare",
+          "bus fare", "mrt fare", "grab", "angkas", "taxi",
+          "lrt fare", "tricycle fare", "parking fee", "car maintenance"
+        ],
+        Entertainment: [
+          "movie tickets", "netflix", "spotify", "youtube premium",
+          "concert tickets", "videoke", "arcade", "theme park",
+          "movie", "cinema", "streaming", "game", "video game"
+        ],
+        Healthcare: [
+          "doctor visit", "hospital", "medicine", "vitamins",
+          "checkup", "dentist", "vaccine", "medical supplies",
+          "pharmacy", "drugstore", "clinic", "xray", "laboratory"
+        ],
+        Shopping: [
+          'shoes', 'clothes', 'shirt', 'pants', 'dress',
+          'gadget', 'phone', 'laptop', 'accessories', 'bag',
+          'watch', 'perfume', 'makeup', 'groceries', 'market',
+          'office chair', 'desk', 'monitor', 'keyboard', 'mouse',
+          'furniture', 'stationery', 'notebook', 'pen', 'backpack'
+        ],
+        Other: [
+          "miscellaneous", "unknown", "uncategorized"
+        ]
+      };
+
+      const targetCount = Math.max(...Object.values(categoryCounts)) || 10;
+      for (const [category, examples] of Object.entries(categoryExamples)) {
+        examples.forEach(text => {
+          if ((categoryCounts[category] || 0) < targetCount) {
+            this.addTrainingExample(text, category);
+            categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+          }
+        });
+      }
+      
+      await this.train();
+    } catch (error) {
+      console.error('Error loading training data:', error);
+    }
+  }
+
+  addCommonFoodMisspellings(baseWord) {
+    if (baseWord.includes('burger')) {
+      this.addTrainingExample('burgei', 'Food');
+      this.addTrainingExample('burgir', 'Food');
+    }
+    if (baseWord.includes('pizza')) {
+      this.addTrainingExample('piza', 'Food');
+      this.addTrainingExample('pisa', 'Food');
+    }
+  }
+
+  fuzzyMatch(input, target, threshold = 0.7) {
+    const distance = natural.LevenshteinDistance(input, target);
+    const similarity = 1 - (distance / Math.max(input.length, target.length));
+    return similarity >= threshold;
+  }
+
+  addTrainingExample(text, category) {
+    this.keywordClassifier.addDocument(text, category);
+    this.trainingData.push({
+      input: this.textToFeatures(text),
+      output: { [category]: 1 }
+    });
+  }
+  
+  async train() {
+  this.keywordClassifier.train();
+  
+  if (this.trainingData.length > 0) {
+    await this.neuralClassifier.train(this.trainingData, {
+      iterations: 2000,
+      errorThresh: 0.005,
+      log: true 
+    });
+  }
+  
+  // Add fallback samples if training data is empty
+  if (this.trainingData.length === 0) {
+    const samples = [
+      { text: "burger", category: "Food" },
+      { text: "movie tickets", category: "Entertainment" },
+      { text: "gasoline", category: "Transportation" },
+      { text: "electric bill", category: "Bill" },
+      { text: "doctor visit", category: "Healthcare" },
+      { text: "new shoes", category: "Shopping" }
+    ];
+
+    // Train keyword classifier
+    samples.forEach(sample => {
+      this.addTrainingExample(sample.text, sample.category);
+    });
+    this.keywordClassifier.train();
+  }
+
+    // Prepare neural network training data
+    const neuralTrainingData = samples.map(sample => ({
+      input: this.textToFeatures(sample.text),
+      output: { [sample.expense_type]: 1 }
+    }));
+
+    // Train neural network
+    this.neuralClassifier.train(neuralTrainingData, {
+      iterations: 2000,
+      errorThresh: 0.005
+    });
+  }
+
+  // Extract features from text
+  textToFeatures(text) {
+    const doc = nlp(text);
+    const nouns = doc.nouns().out('array');
+    const verbs = doc.verbs().out('array');
+    const adjectives = doc.adjectives().out('array');
+    
+    return {
+      length: text.length,
+      hasAmount: /\d+/.test(text),
+      nouns: nouns.length,
+      verbs: verbs.length,
+      adjectives: adjectives.length,
+      tokens: text.split(' ').length
+    };
+  }
+
+  async predict(text) {
+    try {
+      const lowerText = text.toLowerCase().trim();
+      const words = lowerText.split(/\s+/);
+
+      const categoryKeywords = {
+        Food: [
+          "burger", "burgei", "burgir", "hamburger", "jollibee", 
+          "pizza", "piza", "pasta", "sandwich", "fries", "milktea",
+          "rice", "noodles", "chicken", "mcdo", "kfc"
+        ],
+        Bill: [
+          "electric bill", "water bill", "internet bill", "phone bill",
+          "cable bill", "utility bill", "rent", "mortgage", "electricity",
+          "water payment", "internet payment"
+        ],
+        Transportation: [
+          "gasoline", "gas", "petrol", "diesel", "jeepney fare",
+          "bus fare", "mrt fare", "grab", "angkas", "taxi",
+          "lrt fare", "tricycle fare", "parking fee", "car maintenance"
+        ],
+        Entertainment: [
+          "movie tickets", "netflix", "spotify", "youtube premium",
+          "concert tickets", "videoke", "arcade", "theme park",
+          "movie", "cinema", "streaming", "game", "video game"
+        ],
+        Healthcare: [
+          "doctor visit", "hospital", "medicine", "vitamins",
+          "checkup", "dentist", "vaccine", "medical supplies",
+          "pharmacy", "drugstore", "clinic", "xray", "laboratory"
+        ],
+        Shopping: [
+          'shoes', 'clothes', 'shirt', 'pants', 'dress',
+          'gadget', 'phone', 'laptop', 'accessories', 'bag',
+          'watch', 'perfume', 'makeup', 'groceries', 'market',
+          'office chair', 'desk', 'monitor', 'keyboard', 'mouse',
+          'furniture', 'stationery', 'notebook', 'pen', 'backpack'
+        ]
+      };
+      
+
+      for (const [category, keywords] of Object.entries(categoryKeywords)) {
+        if (keywords.some(keyword => 
+          keyword.includes(' ') ? 
+            lowerText.includes(keyword) : 
+            words.includes(keyword)
+        )) {
+          return category;
+        }
+      }
+
+      const keywordCategory = this.keywordClassifier.classify(lowerText);
+      if (keywordCategory && keywordCategory !== 'Other') {
+        const probs = this.keywordClassifier.getClassifications(lowerText);
+        if (probs[0].value > 0.6) return keywordCategory;
+      }
+  
+      const neuralResult = this.neuralClassifier.run(this.textToFeatures(lowerText));
+      if (neuralResult) {
+        const neuralCategory = Object.keys(neuralResult)[0];
+        if (neuralCategory && neuralCategory !== 'Other') {
+          return neuralCategory;
+        }
+      }
+  
+      return 'Other';
+    } catch (error) {
+      console.error('Prediction error:', error);
+      return 'Other';
+    }
+  }
+
+
+  async learn(text, correctCategory) {
+    try {
+
+      this.keywordClassifier.addDocument(text, correctCategory);
+      
+
+      this.trainingData.push({
+        input: this.textToFeatures(text),
+        output: { [correctCategory]: 1 }
+      });
+      
+      await this.keywordClassifier.retrain();
+      
+      if (this.trainingData.length % 5 === 0) { // Adjust this number as needed
+        await this.neuralClassifier.train(this.trainingData, {
+          iterations: 1000,
+          errorThresh: 0.01,
+          log: false
+        });
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error in learning:', error);
+      throw error;
+    }
+  }
+}
+
+module.exports = new ExpenseClassifier();
