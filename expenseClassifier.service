@@ -20,6 +20,48 @@ class ExpenseClassifier {
     this.trainingData = [];
   }
 
+  async simpleLearn(itemName, expenseType) {
+    try {
+      // Normalize the input
+      const normalizedText = itemName.toLowerCase().trim();
+      
+      // Add to keyword classifier
+      this.keywordClassifier.addDocument(normalizedText, expenseType);
+      
+      // Add to neural network training data
+      this.trainingData.push({
+        input: this.textToFeatures(normalizedText),
+        output: { [expenseType]: 1 }
+      });
+      
+      // Retrain classifiers
+      await this.keywordClassifier.retrain();
+      
+      // Periodically retrain neural network (every 5 examples)
+      if (this.trainingData.length % 5 === 0) {
+        await this.neuralClassifier.train(this.trainingData, {
+          iterations: 1000,
+          errorThresh: 0.01,
+          log: false
+        });
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error in learning:', {
+        error: error.message,
+        text: text,
+        category: correctCategory,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
+
+  async learn(text, correctCategory) {
+    return this.simpleLearn(text, correctCategory);
+  }
+  
   async loadTrainingData() {
     try {
       const [expenses] = await pool.execute(
@@ -241,35 +283,7 @@ class ExpenseClassifier {
       return 'Other';
     }
   }
-
-
-  async learn(text, correctCategory) {
-    try {
-
-      this.keywordClassifier.addDocument(text, correctCategory);
-      
-
-      this.trainingData.push({
-        input: this.textToFeatures(text),
-        output: { [correctCategory]: 1 }
-      });
-      
-      await this.keywordClassifier.retrain();
-      
-      if (this.trainingData.length % 5 === 0) { // Adjust this number as needed
-        await this.neuralClassifier.train(this.trainingData, {
-          iterations: 1000,
-          errorThresh: 0.01,
-          log: false
-        });
-      }
-      
-      return true;
-    } catch (error) {
-      console.error('Error in learning:', error);
-      throw error;
-    }
   }
-}
+
 
 module.exports = new ExpenseClassifier();
