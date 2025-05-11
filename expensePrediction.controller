@@ -1,34 +1,77 @@
 const expenseService = require('../expenses/expenses.service');
-
+const expenseClassifierService = require('../expenses/expenseClassifier.service');
 
 module.exports = {
-    predictCategory: async (req, res) => {
-      try {
+  predictCategory: async (req, res) => {
+    try {
+        // 1. Enhanced Input Validation
         const { item_name } = req.body;
-        const userId = req.user.userId;
+        const userId = req.user?.userId; // Optional chaining in case user is missing
         
-        if (!item_name) {
-          return res.status(400).json({ 
-            success: 0,
-            message: 'Item name is required' 
-          });
+        if (!item_name || typeof item_name !== 'string' || item_name.trim().length < 2) {
+            return res.status(400).json({ 
+                success: false, // Changed to boolean for consistency
+                code: 'INVALID_INPUT',
+                message: 'Item name must be a string with at least 2 characters'
+            });
         }
-        
-        const expense_type = await expenseService.predictExpenseCategory(item_name, userId);
-        
+
+        // 2. Log the prediction request
+        console.log(`Prediction request from user ${userId} for: "${item_name}"`);
+
+        // 3. Get user patterns with error handling
+        let userPatterns;
+        try {
+            userPatterns = await expenseService.getUserPatterns(userId);
+        } catch (serviceError) {
+            console.warn('Failed to load user patterns, using defaults:', serviceError.message);
+            userPatterns = null; 
+        }
+
+        // 4. Prediction with timeout
+        const predictionTimeout = 5000; // 5 seconds
+        const expense_type = await Promise.race([
+          expenseClassifierService.predict(item_name, userPatterns),
+          new Promise((resolve, reject) => {  // Note the proper parameters
+            setTimeout(() => {
+              reject(new Error('Prediction timeout'));
+            }, predictionTimeout);
+          })
+        ]);
+
+        // 5. Validate prediction result
+        const validCategories = ['Food', 'Bill', 'Transportation', 'Entertainment', 'Healthcare', 'Shopping', 'Other'];
+        if (!validCategories.includes(expense_type)) {
+            throw new Error(`Invalid category predicted: ${expense_type}`);
+        }
+
+        // 6. Successful response
         res.json({ 
-          success: 1,
-          data: { expense_type } 
+            success: true,
+            data: { 
+                expense_type,
+                timestamp: new Date().toISOString() 
+            }
         });
-        
-      } catch (error) {
-        console.error('Prediction error:', error);
+
+    } catch (error) {
+        console.error('Prediction failed:', {
+            error: error.message,
+            stack: error.stack,
+            input: req.body.item_name,
+            user: req.user?.userId
+        });
+
         res.status(500).json({ 
-          success: 0,
-          message: 'Failed to predict category' 
+            success: false,
+            code: 'PREDICTION_FAILED',
+            message: process.env.NODE_ENV === 'development' 
+                ? error.message 
+                : 'Failed to process prediction',
+            retryable: !error.message.includes('timeout') // Helpful for client
         });
-      }
-    },
+    }
+},
   
     learnFromCorrection: async (req, res) => {
       try {
@@ -39,8 +82,8 @@ module.exports = {
         });
     
         const { item_name, expense_type, item_price, personal_budget_id } = req.body;
-        const userId = req.user?.userId || null; // Make userId optional for learning
-    
+        const userId = req.user?.userId || null; 
+        
         if (!item_name || !expense_type) {
           console.error('Missing required fields:', { item_name, expense_type });
           return res.status(400).json({ 
@@ -49,6 +92,8 @@ module.exports = {
           });
         }
         
+        await expenseClassifierService.learn(item_name, expense_type);
+      
         const result = await expenseService.learnFromCorrection(
           item_name,
           expense_type,
