@@ -39,12 +39,27 @@ module.exports = {
         }
 
         const predictionTimeout = 5000;
-        let expense_type = await Promise.race([
-            expenseClassifierService.predict(item_name, userPatterns),
-            new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('Prediction timeout')), predictionTimeout);
-            })
-        ]);
+        let [expense_type, confidence] = await Promise.race([
+          (async () => {
+              const prediction = await expenseClassifierService.predict(item_name, userPatterns);
+              let confidence = 1.0; // Default high confidence
+              
+              // Get actual confidence if available
+              if (expenseClassifierService.getConfidence) {
+                  confidence = await expenseClassifierService.getConfidence(item_name);
+              }
+
+              // For uncertain predictions, force 'Other'
+              if (confidence < 0.7) {
+                  prediction = 'Other';
+              }
+
+              return [prediction, confidence];
+          })(),
+          new Promise((_, reject) => {
+              setTimeout(() => reject(new Error('Prediction timeout')), predictionTimeout);
+          })
+      ]);
 
         const initialPrediction = expense_type;
 
@@ -97,6 +112,7 @@ module.exports = {
             success: true,
             data: { 
                 expense_type,
+                confidence,
                 timestamp: new Date().toISOString(),
                 wasAdjusted: expense_type !== initialPrediction,
                 adjustmentReason: expense_type !== initialPrediction ? 
