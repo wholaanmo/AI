@@ -1,43 +1,162 @@
+const pool = require('../../config/database');
 const natural = require('natural');
 const brain = require('brain.js');
 const nlp = require('compromise');
-const expenseService = require('../expenses/expenses.service');
-const pool = require('../../config/database');
 
 class ExpenseClassifier {
   constructor() {
+    this.nlp = nlp; 
     this.initializeClassifiers();
     this.trainingData = [];
-  }
-
-  async initialize() {
-    await this.loadTrainingData();
+    this.initializeWithBasicData(); 
   }
 
   initializeClassifiers() {
     this.keywordClassifier = new natural.BayesClassifier();
-    this.neuralClassifier = new brain.recurrent.LSTM();
+    
+    this.neuralClassifier = new brain.NeuralNetwork({
+      binaryThresh: 0.5,
+      hiddenLayers: [10, 7], // Added an extra layer
+      activation: 'leaky-relu', // Better for this task
+      leakyReluAlpha: 0.01,
+      inputSize: 7,
+      outputSize: 7
+    });
+    
     this.trainingData = [];
   }
 
+  initializeWithBasicData() {
+    const enhancedTrainingData = {
+      Food: {
+        examples: ["burger", "pizza", "pasta"],
+        nouns: ["meal", "food", "dinner"],
+        verbs: ["eat", "dine"]
+      },
+      Bill: {
+        examples: ["electric bill", "water payment"],
+        nouns: ["utility", "rent"],
+        verbs: ["pay", "owe"]
+      },
+      Transportation: {
+        examples: ["bus fare", "gas", "train ticket"],
+        nouns: ["transport", "fare"],
+        verbs: ["ride", "travel"]
+      },
+      Entertainment: {
+        examples: ["movie", "concert", "game"],
+        nouns: ["fun", "show"],
+        verbs: ["watch", "play"]
+      },
+      Healthcare: {
+        examples: ["doctor", "hospital", "medicine"],
+        nouns: ["health", "clinic"],
+        verbs: ["treat", "heal"]
+      },
+      Shopping: {
+        examples: ["clothes", "shoes", "mall"],
+        nouns: ["purchase", "item"],
+        verbs: ["buy", "shop"]
+      },
+      Other: {
+        examples: ["miscellaneous", "unknown"],
+        nouns: ["other"],
+        verbs: []
+      }
+    };
+    Object.entries(enhancedTrainingData).forEach(([category, data]) => {
+      // Train on direct examples
+      data.examples.forEach(text => this.addTrainingExample(text, category));
+      
+      // Train on related nouns/verbs
+      data.nouns.forEach(noun => this.addTrainingExample(noun, category));
+      data.verbs.forEach(verb => this.addTrainingExample(verb, category));
+    });
+    
+    this.train();
+  }
+
+  textToFeatures(text) {
+    const doc = this.nlp(text);
+    const words = text.split(/\s+/);
+    
+    return [
+      Math.min(text.length / 100, 1), // Normalized length
+      /\d/.test(text) ? 1 : 0, // Has numbers
+      Math.min(words.length / 10, 1), // Word count
+      Math.min(doc.nouns().out('array').length / 5, 1),
+      Math.min(doc.verbs().out('array').length / 5, 1),
+      Math.min(doc.adjectives().out('array').length / 5, 1),
+      text.endsWith('?') ? 1 : 0
+    ];
+  }
+
+  addLinguisticVariants(text, category) {
+    const doc = this.nlp(text);
+    
+    // 1. Add singular/plural forms
+    const singular = doc.nouns().toSingular().text();
+    if (singular !== text) {
+      this.keywordClassifier.addDocument(singular, category);
+    }
+    
+    // 2. Add verb forms (e.g. "paying bill" -> "pay bill")
+    const baseVerbs = doc.verbs().toInfinitive().text();
+    if (baseVerbs !== text) {
+      this.keywordClassifier.addDocument(baseVerbs, category);
+    }
+    
+    // 3. Add money-related expansions
+    if (doc.has('#Money')) {
+      this.keywordClassifier.addDocument('payment', category);
+    }
+  }
+
+  addCommonFoodMisspellings(baseWord) {
+    if (baseWord.includes('burger')) {
+      this.addTrainingExample('burgei', 'Food');
+      this.addTrainingExample('burgir', 'Food');
+    }
+    if (baseWord.includes('pizza')) {
+      this.addTrainingExample('piza', 'Food');
+      this.addTrainingExample('pisa', 'Food');
+    }
+  }
+
+  fuzzyMatch(input, target, threshold = 0.7) {
+    const distance = natural.LevenshteinDistance(input, target);
+    const similarity = 1 - (distance / Math.max(input.length, target.length));
+    return similarity >= threshold;
+  }
+
+  addTrainingExample(text, category) {
+    const normalized = text.toLowerCase().trim();
+    
+    this.keywordClassifier.addDocument(normalized, category);
+    
+    this.trainingData.push({
+      input: this.textToFeatures(normalized),
+      output: category // Just use the category name directly
+    });
+
+    this.addLinguisticVariants(normalized, category);
+  }
+
+  
+
   async simpleLearn(itemName, expenseType) {
     try {
-      // Normalize the input
       const normalizedText = itemName.toLowerCase().trim();
-      
-      // Add to keyword classifier
+
       this.keywordClassifier.addDocument(normalizedText, expenseType);
       
-      // Add to neural network training data
-      this.trainingData.push({
-        input: this.textToFeatures(normalizedText),
-        output: { [expenseType]: 1 }
-      });
+      const features = this.textToFeatures(normalizedText);
+    this.trainingData.push({
+      input: features,
+      output: { [expenseType]: 1 }
+    });
       
-      // Retrain classifiers
       await this.keywordClassifier.retrain();
-      
-      // Periodically retrain neural network (every 5 examples)
       if (this.trainingData.length % 5 === 0) {
         await this.neuralClassifier.train(this.trainingData, {
           iterations: 1000,
@@ -45,13 +164,12 @@ class ExpenseClassifier {
           log: false
         });
       }
-      
       return true;
     } catch (error) {
       console.error('Error in learning:', {
         error: error.message,
-        text: text,
-        category: correctCategory,
+        text: itemName,        
+        category: expenseType, 
         stack: error.stack
       });
       throw error;
@@ -65,9 +183,16 @@ class ExpenseClassifier {
   async loadTrainingData() {
     try {
       const [expenses] = await pool.execute(
-        "SELECT LOWER(item_name) as item_name, expense_type FROM expenses"
+        "SELECT LOWER(item_name) as item_name, expense_type FROM expenses LIMIT 1000"
       );
       
+      console.log(`Loaded ${expenses.length} training examples`);
+
+      if (expenses.length === 0) {
+        console.warn('Warning: No training data loaded from database');
+        return;
+      }
+
       const categoryCounts = {};
       expenses.forEach(expense => {
         this.addTrainingExample(expense.item_name, expense.expense_type);
@@ -128,94 +253,54 @@ class ExpenseClassifier {
     }
   }
 
-  addCommonFoodMisspellings(baseWord) {
-    if (baseWord.includes('burger')) {
-      this.addTrainingExample('burgei', 'Food');
-      this.addTrainingExample('burgir', 'Food');
-    }
-    if (baseWord.includes('pizza')) {
-      this.addTrainingExample('piza', 'Food');
-      this.addTrainingExample('pisa', 'Food');
-    }
-  }
 
-  fuzzyMatch(input, target, threshold = 0.7) {
-    const distance = natural.LevenshteinDistance(input, target);
-    const similarity = 1 - (distance / Math.max(input.length, target.length));
-    return similarity >= threshold;
-  }
-
-  addTrainingExample(text, category) {
-    this.keywordClassifier.addDocument(text, category);
-    this.trainingData.push({
-      input: this.textToFeatures(text),
-      output: { [category]: 1 }
-    });
-  }
-  
   async train() {
   this.keywordClassifier.train();
   
   if (this.trainingData.length > 0) {
-    await this.neuralClassifier.train(this.trainingData, {
-      iterations: 2000,
-      errorThresh: 0.005,
-      log: true 
-    });
-  }
-  
-  // Add fallback samples if training data is empty
-  if (this.trainingData.length === 0) {
-    const samples = [
-      { text: "burger", category: "Food" },
-      { text: "movie tickets", category: "Entertainment" },
-      { text: "gasoline", category: "Transportation" },
-      { text: "electric bill", category: "Bill" },
-      { text: "doctor visit", category: "Healthcare" },
-      { text: "new shoes", category: "Shopping" }
-    ];
-
-    // Train keyword classifier
-    samples.forEach(sample => {
-      this.addTrainingExample(sample.text, sample.category);
-    });
-    this.keywordClassifier.train();
-  }
-
-    // Prepare neural network training data
-    const neuralTrainingData = samples.map(sample => ({
-      input: this.textToFeatures(sample.text),
-      output: { [sample.expense_type]: 1 }
-    }));
-
-    // Train neural network
-    this.neuralClassifier.train(neuralTrainingData, {
-      iterations: 2000,
-      errorThresh: 0.005
-    });
-  }
-
-  // Extract features from text
-  textToFeatures(text) {
-    const doc = nlp(text);
-    const nouns = doc.nouns().out('array');
-    const verbs = doc.verbs().out('array');
-    const adjectives = doc.adjectives().out('array');
-    
-    return {
-      length: text.length,
-      hasAmount: /\d+/.test(text),
-      nouns: nouns.length,
-      verbs: verbs.length,
-      adjectives: adjectives.length,
-      tokens: text.split(' ').length
-    };
-  }
-
-  async predict(text) {
     try {
+      const trainingOptions = {
+        iterations: 500, // Reduced from 2000
+        errorThresh: 0.01,
+        log: true,
+        learningRate: 0.5, // Increased learning rate
+        momentum: 0.3,
+        timeout: 10000 // Stop after 10 seconds
+      };
+      
+      await this.neuralClassifier.train(this.prepareTrainingData(), trainingOptions);
+    } catch (err) {
+      console.error('Training failed:', err);
+    }
+  }
+}
+
+prepareTrainingData() {
+  const categories = ['Food', 'Bill', 'Transportation', 'Entertainment', 'Healthcare', 'Shopping', 'Other'];
+  return this.trainingData.map(item => {
+    const output = {};
+    categories.forEach(cat => {
+      output[cat] = item.output === cat ? 0.99 : 0.01; // Better contrast
+    });
+    return {
+      input: item.input,
+      output: output
+    };
+  });
+}
+
+  async predict(text, userPatterns = null) {  
+    try {
+      if (!text || typeof text !== 'string' || text.trim().length === 0) {
+        return 'Other';
+      }
+
       const lowerText = text.toLowerCase().trim();
       const words = lowerText.split(/\s+/);
+
+      if (userPatterns && userPatterns[lowerText]) {
+        return userPatterns[lowerText];
+      }
 
       const categoryKeywords = {
         Food: [
