@@ -194,49 +194,42 @@ class ExpenseClassifier {
   }
 
   async learn(text, expenseType, userId, options = {}) {
-    const lowerText = text.toLowerCase().trim();
-    if (!this.recentCorrections.has(lowerText)) {
-      this.recentCorrections.set(lowerText, {
-        count: 1,
-        expenseType: expenseType
-      });
-    } else {
-      const entry = this.recentCorrections.get(lowerText);
-      entry.count += 1;
-      entry.expenseType = expenseType;
-    }
-
     try {
-      // 1. Fast immediate learning (simple keyword-based)
-      const simpleResult = await this.simpleLearn(text, expenseType);
-      
-      // 2. Full retraining (ML model)
-      if (options.immediateRetrain !== false) { // Configurable
-        await this.persistCorrections(userId);
-        await this.addTrainingExample(text, expenseType);
-        await this.retrain();
-      }
-      
-      return {
-        success: true,
-        simpleLearn: simpleResult,
-        fullRetrain: options.immediateRetrain !== false
-      };
-      
+        const lowerText = (text || '').toLowerCase().trim();
+        const safeExpenseType = expenseType || 'Other';
+        const safeUserId = userId || null;
+
+        // Add to recent corrections
+        const currentCount = this.recentCorrections.get(lowerText)?.count || 0;
+        this.recentCorrections.set(lowerText, {
+            count: currentCount + 1,
+            expenseType: safeExpenseType
+        });
+
+        // Add training example
+        this.addTrainingExample(lowerText, safeExpenseType);
+        
+        // Immediate persist if requested
+        if (options.immediatePersist) {
+            await this.persistCorrections(safeUserId);
+        }
+
+        // Periodic retraining
+        if (this.trainingData.length % 5 === 0) {
+            await this.retrain();
+        }
+
+        return true;
     } catch (error) {
-      console.error('Combined learning failed:', {
-        text,
-        expenseType,
-        error: error.message
-      });
-      
-      // Fallback to simple learn if full retrain fails
-      if (error.isRetryable) {
-        return this.simpleLearn(text, expenseType);
-      }
-      throw error;
+        console.error('Learning error:', {
+            text,
+            expenseType,
+            userId,
+            error: error.message
+        });
+        throw error;
     }
-  }
+}
   
   async persistCorrections(userId) {  
     const corrections = Array.from(this.recentCorrections.entries())
@@ -249,16 +242,25 @@ class ExpenseClassifier {
           await connection.beginTransaction();
           
           for (const [itemName, {expenseType, count}] of corrections) {
+            // Ensure no undefined values get passed to MySQL
+            const safeItemName = itemName || null;
+            const safeExpenseType = expenseType || null;
+            const safeUserId = userId || null;
+            
             await connection.execute(
-              `INSERT INTO expense_learning_data 
-               (item_name, expense_type, correction_count, correction_source, userId) 
-               VALUES (?, ?, ?, ?, ?)
-               ON DUPLICATE KEY UPDATE
-               expense_type = VALUES(expense_type),
-               correction_count = correction_count + 1,
-               last_updated = NOW(),
-               is_recurring = IF(correction_count >= 3, TRUE, is_recurring)`,
-              [itemName, expenseType, count, 'manual', userId]  // Add userId
+                `INSERT INTO expense_learning_data 
+                 (item_name, expense_type, correction_count, userId) 
+                 VALUES (?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                 expense_type = VALUES(expense_type),
+                 correction_count = correction_count + VALUES(correction_count),
+                 last_updated = NOW()`,
+                [
+                    safeItemName.substring(0, 100), // Ensure it fits in column
+                    safeExpenseType,
+                    count,
+                    safeUserId
+                ]
             );
         }
         
@@ -266,7 +268,12 @@ class ExpenseClassifier {
         this.recentCorrections.clear();
     } catch (err) {
         await connection.rollback();
-        console.error('Failed to persist corrections:', err);
+        console.error('Failed to persist corrections:', {
+            error: err.message,
+            stack: err.stack,
+            corrections: corrections // Log what we were trying to save
+        });
+        throw err;
     } finally {
         connection.release();
     }
